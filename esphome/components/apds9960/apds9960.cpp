@@ -29,7 +29,7 @@ void APDS9960::setup() {
   }
 
   // ATime (ADC integration time, 2.78ms increments, 0x81) -> 0xDB (103ms)
-  APDS9960_WRITE_BYTE(0x81, 0xDB);
+  APDS9960_WRITE_BYTE(0x81, this->aTime_);
   // WTime (Wait time, 0x83) -> 0xF6 (27ms)
   APDS9960_WRITE_BYTE(0x83, 0xF6);
   // PPulse (0x8E) -> 0x87 (16us, 8 pulses)
@@ -53,7 +53,7 @@ void APDS9960::setup() {
   val |= (proximity_gain & 0b11) << 2;
 
   val &= 0b11111100;
-  uint8_t ambient_gain = 1;  // ambient light gain, 0 -> 1x, 1 -> 4x, 2 -> 16x, 3 -> 64x
+  uint8_t ambient_gain = aGain_;  // ambient light gain, 0 -> 1x, 1 -> 4x, 2 -> 16x, 3 -> 64x
   val |= (ambient_gain & 0b11) << 0;
   APDS9960_WRITE_BYTE(0x8F, val);
 
@@ -123,6 +123,8 @@ bool APDS9960::is_color_enabled_() const {
 void APDS9960::dump_config() {
   ESP_LOGCONFIG(TAG, "APDS9960:");
   LOG_I2C_DEVICE(this);
+  ESP_LOGCONFIG(TAG, "  ATIME: %d", this->aTime_);
+  ESP_LOGCONFIG(TAG, "  AGAIN: %d", this->aGain_);
 
   LOG_UPDATE_INTERVAL(this);
   if (this->is_failed()) {
@@ -175,10 +177,11 @@ void APDS9960::read_color_data_(uint8_t status) {
   uint16_t uint_green = (uint16_t(raw[5]) << 8) | raw[4];
   uint16_t uint_blue = (uint16_t(raw[7]) << 8) | raw[6];
 
-  float clear_perc = (uint_clear / float(UINT16_MAX)) * 100.0f;
-  float red_perc = (uint_red / float(UINT16_MAX)) * 100.0f;
-  float green_perc = (uint_green / float(UINT16_MAX)) * 100.0f;
-  float blue_perc = (uint_blue / float(UINT16_MAX)) * 100.0f;
+  float countMax = float(aTime_ >= 193 ? (256 - aTime_) * 1025 : 65535);
+  float clear_perc = (uint_clear / countMax) * 100.0f;
+  float red_perc = (uint_red / countMax) * 100.0f;
+  float green_perc = (uint_green / countMax) * 100.0f;
+  float blue_perc = (uint_blue / countMax) * 100.0f;
 
   ESP_LOGD(TAG, "Got clear=%.1f%% red=%.1f%% green=%.1f%% blue=%.1f%%", clear_perc, red_perc, green_perc, blue_perc);
   if (this->clear_channel_ != nullptr)
