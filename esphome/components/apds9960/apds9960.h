@@ -8,6 +8,13 @@
 namespace esphome {
 namespace apds9960 {
 
+enum APDS9960ALSGain {
+  APDS9960_ALS_GAIN_1X = 0,
+  APDS9960_ALS_GAIN_4X = 1,
+  APDS9960_ALS_GAIN_16X = 2,
+  APDS9960_ALS_GAIN_64X = 3,
+};
+
 class APDS9960 : public PollingComponent, public i2c::I2CDevice {
  public:
   void setup() override;
@@ -25,6 +32,9 @@ class APDS9960 : public PollingComponent, public i2c::I2CDevice {
   void set_down_direction(binary_sensor::BinarySensor *down_direction) { down_direction_ = down_direction; }
   void set_left_direction(binary_sensor::BinarySensor *left_direction) { left_direction_ = left_direction; }
   void set_proximity(sensor::Sensor *proximity) { proximity_ = proximity; }
+
+  void set_als_integration(uint8_t aTime) { aTime_ = aTime; }
+  void set_als_gain(APDS9960ALSGain aGain) { aGain_ = aGain; }
 
  protected:
   bool is_color_enabled_() const;
@@ -55,6 +65,8 @@ class APDS9960 : public PollingComponent, public i2c::I2CDevice {
   bool gesture_left_started_{false};
   bool gesture_right_started_{false};
   uint32_t gesture_start_{0};
+  uint8_t aTime_{0xDB};
+  APDS9960ALSGain aGain_{APDS9960_ALS_GAIN_4X};
 };
 
 }  // namespace apds9960
