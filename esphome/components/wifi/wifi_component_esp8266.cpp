@@ -58,19 +58,6 @@ bool WiFiComponent::wifi_mode_(optional<bool> sta, optional<bool> ap) {
 
   return ret;
 }
-bool WiFiComponent::wifi_disable_auto_connect_() {
-  bool ret1, ret2;
-  ETS_UART_INTR_DISABLE();
-  ret1 = wifi_station_set_auto_connect(0);
-  ret2 = wifi_station_set_reconnect_policy(false);
-  ETS_UART_INTR_ENABLE();
-
-  if (!ret1 || !ret2) {
-    ESP_LOGV(TAG, "Disabling Auto-Connect failed!");
-  }
-
-  return ret1 && ret2;
-}
 bool WiFiComponent::wifi_apply_power_save_() {
   sleep_type_t power_save;
   switch (this->power_save_) {
@@ -158,9 +145,7 @@ bool WiFiComponent::wifi_sta_connect_(WiFiAP ap) {
   if (!this->wifi_mode_(true, {}))
     return false;
 
-  ETS_UART_INTR_DISABLE();
-  wifi_station_disconnect();
-  ETS_UART_INTR_ENABLE();
+  this->wifi_disconnect_();
 
   struct station_config conf {};
   memset(&conf, 0, sizeof(conf));
@@ -330,11 +315,6 @@ const char *get_disconnect_reason_str(uint8_t reason) {
 }
 
 void WiFiComponent::wifi_event_callback(System_Event_t *event) {
-  // TODO: this callback is called while in cont context, so delay will fail
-  // We need to defer the log messages until we're out of this context
-  // only affects verbose log level
-  // reproducible by enabling verbose log level and letting the ESP disconnect and
-  // then reconnect to WiFi.
   switch (event->event) {
     case EVENT_STAMODE_CONNECTED: {
       auto it = event->event_info.connected;
@@ -382,7 +362,7 @@ void WiFiComponent::wifi_event_callback(System_Event_t *event) {
     }
     case EVENT_SOFTAPMODE_PROBEREQRECVED: {
       auto it = event->event_info.ap_probereqrecved;
-      ESP_LOGV(TAG, "Event: AP receive Probe Request MAC=%s RSSI=%d", format_mac_addr(it.mac).c_str(), it.rssi);
+      ESP_LOGVV(TAG, "Event: AP receive Probe Request MAC=%s RSSI=%d", format_mac_addr(it.mac).c_str(), it.rssi);
       break;
     }
 #ifndef ARDUINO_ESP8266_RELEASE_2_3_0
@@ -410,7 +390,44 @@ void WiFiComponent::wifi_event_callback(System_Event_t *event) {
   WiFiMockClass::_event_callback(event);
 }
 
-void WiFiComponent::wifi_register_callbacks_() { wifi_set_event_handler_cb(&WiFiComponent::wifi_event_callback); }
+bool WiFiComponent::wifi_sta_pre_setup_() {
+  if (!this->wifi_mode_(true, {}))
+    return false;
+
+  bool ret1, ret2;
+  ETS_UART_INTR_DISABLE();
+  ret1 = wifi_station_set_auto_connect(0);
+  ret2 = wifi_station_set_reconnect_policy(false);
+  ETS_UART_INTR_ENABLE();
+
+  if (!ret1 || !ret2) {
+    ESP_LOGV(TAG, "Disabling Auto-Connect failed!");
+  }
+
+  delay(10);
+  return true;
+}
+
+void WiFiComponent::wifi_pre_setup_() {
+  wifi_set_event_handler_cb(&WiFiComponent::wifi_event_callback);
+  // Make sure the default opmode is OFF
+  uint8_t default_opmode = wifi_get_opmode_default();
+  if (default_opmode != 0) {
+    ESP_LOGV(TAG, "Setting default WiFi Mode to 0 (was %u)", default_opmode);
+
+    ETS_UART_INTR_DISABLE();
+    bool ret = wifi_set_opmode(0);
+    ETS_UART_INTR_ENABLE();
+
+    if (!ret) {
+      ESP_LOGW(TAG, "Setting default WiFi mode failed!");
+    }
+  }
+
+  // Make sure WiFi is in clean state before anything starts
+  this->wifi_mode_(false, false);
+}
+
 wl_status_t WiFiComponent::wifi_sta_status_() {
   station_status_t status = wifi_station_get_connect_status();
   switch (status) {
@@ -435,11 +452,6 @@ bool WiFiComponent::wifi_scan_start_() {
   if (!this->wifi_mode_(true, {}))
     return false;
 
-  station_status_t sta_status = wifi_station_get_connect_status();
-  if (sta_status != STATION_GOT_IP && sta_status != STATION_IDLE) {
-    wifi_station_disconnect();
-  }
-
   struct scan_config config {};
   memset(&config, 0, sizeof(config));
   config.ssid = nullptr;
@@ -463,6 +475,18 @@ bool WiFiComponent::wifi_scan_start_() {
     return false;
   }
 
+  return ret;
+}
+bool WiFiComponent::wifi_disconnect_() {
+  bool ret = true;
+  // Only call disconnect if interface is up
+  if (wifi_get_opmode() & WIFI_STA)
+    ret = wifi_station_disconnect();
+  station_config conf{};
+  memset(&conf, 0, sizeof(conf));
+  ETS_UART_INTR_DISABLE();
+  wifi_station_set_config_current(&conf);
+  ETS_UART_INTR_ENABLE();
   return ret;
 }
 void WiFiComponent::s_wifi_scan_done_callback(void *arg, STATUS status) {
@@ -583,7 +607,7 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
 
   return true;
 }
-IPAddress WiFiComponent::wifi_soft_ap_ip_() {
+IPAddress WiFiComponent::wifi_soft_ap_ip() {
   struct ip_info ip {};
   wifi_get_ip_info(SOFTAP_IF, &ip);
   return {ip.ip.addr};
