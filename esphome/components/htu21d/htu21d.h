@@ -17,10 +17,12 @@ class HTU21DComponent : public PollingComponent, public i2c::I2CDevice {
   void dump_config() override;
   /// Update the sensor values (temperature+humidity).
   void update() override;
+  void set_temperature_compensation(bool enabled) { temperature_compensation_enabled_ = enabled; };
 
   float get_setup_priority() const override;
 
  protected:
+  bool temperature_compensation_enabled_{false};
   sensor::Sensor *temperature_{nullptr};
   sensor::Sensor *humidity_{nullptr};
 };

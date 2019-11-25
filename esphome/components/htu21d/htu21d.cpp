@@ -49,6 +49,11 @@ void HTU21DComponent::update() {
   }
 
   float humidity = (float(raw_humidity & 0xFFFC)) * 125.0f / 65536.0f - 6.0f;
+
+  if (temperature_compensation_enabled_) {
+    humidity = humidity - 0.15 * (25 - temperature);
+  }
+
   ESP_LOGD(TAG, "Got Temperature=%.1f°C Humidity=%.1f%%", temperature, humidity);
 
   if (this->temperature_ != nullptr)
